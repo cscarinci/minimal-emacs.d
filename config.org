@@ -1,0 +1,836 @@
+#+title: Emacs Literate Configuration
+#+subtitle: Based on Minimal Emacs by JamesCherti
+#+author: Carlos Scarinci
+#+email: cscarinci@dgist.ac.kr
+#+startup: overview
+
+
+* pre-early-init
+** performance
+#+name: performance
+#+begin_src emacs-lisp
+
+;; Adjust garbage collection threshold for faster startup
+(setq minimal-emacs-gc-cons-threshold (* 64 1024 1024))
+
+;; Enable context menus, tool bars, menu bars, dialogs and tooltips.
+;; (setq minimal-emacs-ui-features '(context-menu tool-bar menu-bar dialogs tooltips))
+
+;; Reduce clutter in ~/.emacs.d by redirecting files to ~/emacs.d/var/
+(setq minimal-emacs-var-dir (expand-file-name "var/" minimal-emacs-user-directory))
+(setq package-user-dir (expand-file-name "elpa" minimal-emacs-var-dir))
+(setq user-emacs-directory minimal-emacs-var-dir)
+#+end_src
+* post-early-init
+** package
+#+name: package
+#+begin_src emacs-lisp
+
+;; Initialize packages before init.el is loaded
+(setq minimal-emacs-package-initialize-and-refresh nil)
+
+;; Ignore "Unnecessary call to package-initialize in init file." warning
+(setq warning-suppres-types '((package)))
+
+(progn
+  (package-initialize)
+  (unless package-archive-contents
+    (package-refresh-contents))
+  (unless (package-installed-p 'use-package)
+    (package-install 'use-package))
+  (eval-when-compile
+    (require 'use-package)))
+#+end_src
+** frame
+#+name: frame
+#+begin_src emacs-lisp
+
+;; Set font
+(add-to-list 'default-frame-alist '(font . "JetBrains Mono-12"))
+
+(use-package auto-dark
+  :init (auto-dark-mode)
+  :ensure t)
+
+;; Set theme
+;; (load-theme 'modus-operandi t)
+(use-package catppuccin-theme
+  :config (progn
+            (load-theme 'catppuccin :no-confirm))
+  :ensure t)
+
+;; Modeline
+(use-package doom-modeline
+  :config (progn 
+            (setq doom-modeline-buffer-file-name-style 'buffer-name)
+            (setq doom-modeline-project-detection 'project)
+            (setq doom-modeline-buffer-name t)
+            (setq doom-modeline-vcs-max-length 25)
+            (setq doom-modeline-icon nil))
+  :hook (after-init . doom-modeline-mode)
+  :ensure t)
+
+(use-package emacs
+  :ensure nil
+  :config
+  (progn
+    (set-display-table-slot standard-display-table 'vertical-border (make-glyph-code ?│))))
+#+end_src
+** buffers
+#+name: buffers
+#+begin_src emacs-lisp
+
+(use-package emacs
+  :config
+  (progn
+
+    ;; Scratch Buffer
+    (setq initial-major-mode 'org-mode)
+    (setq initial-scratch-message "#+title: Scratch Buffer\n\n#+begin_src emacs-lisp \n\n\n\n\n#+end_src\n\n")
+
+    ;; Suppress all messages
+    (setq-default inhibit-message t)
+
+    (defun my/skip-these-buffers (_window buffer _bury-or-kill)
+      "Function for `switch-to-prev-buffer-skip'."
+      (string-match "\\*[^*]+\\*" (buffer-name buffer)))
+    (setq switch-to-prev-buffer-skip 'my/skip-these-buffers))
+  :ensure nil)
+#+end_src
+
+* pre-init
+** straight
+#+name: straight
+#+begin_src emacs-lisp
+
+(defvar bootstrap-version)
+(let ((bootstrap-file
+       (expand-file-name
+        "straight/repos/straight.el/bootstrap.el"
+        (or (bound-and-true-p straight-base-dir)
+            user-emacs-directory)))
+      (bootstrap-version 7))
+  (unless (file-exists-p bootstrap-file)
+    (with-current-buffer
+        (url-retrieve-synchronously
+         "https://raw.githubusercontent.com/radian-software/straight.el/develop/install.el"
+         'silent 'inhibit-cookies)
+      (goto-char (point-max))
+      (eval-print-last-sexp)))
+  (load bootstrap-file nil 'nomessage))
+#+end_src
+** org-latest
+#+name: org-latest
+#+begin_src emacs-lisp
+
+(use-package org
+  :defer
+  :straight `(org
+              :fork (:host nil
+                           :repo "https://git.tecosaur.net/tec/org-mode.git"
+                           :branch "dev"
+                           :remote "tecosaur")
+              :files (:defaults "etc")
+              :build t
+              :pre-build
+              (with-temp-file "org-version.el"
+                (require 'lisp-mnt)
+                (let ((version
+                       (with-temp-buffer
+                         (insert-file-contents "lisp/org.el")
+                         (lm-header "version")))
+                      (git-version
+                       (string-trim
+                        (with-temp-buffer
+                          (call-process "git" nil t nil "rev-parse" "--short" "HEAD")
+                          (buffer-string)))))
+                  (insert
+                   (format "(defun org-release () \"The release version of Org.\" %S)\n" version)
+                   (format "(defun org-git-version () \"The truncate git commit hash of Org mode.\" %S)\n" git-version)
+                   "(provide 'org-version)\n")))
+              :pin nil))
+#+end_src
+* post-init
+** minimal-emacs
+#+name: minimal-emacs
+#+begin_src emacs-lisp
+
+;; Emacs Library Compilation
+(use-package compile-angel
+  :ensure t
+  :demand t
+  :config
+  (compile-angel-on-load-mode)
+  (add-hook 'emacs-lisp-mode-hook #'compile-angel-on-save-local-mode))
+
+;; Ensure Emacs loads the most recent byte-compiled files.
+(setq load-prefer-newer t)
+
+;; Ensure JIT compilation is enabled for improved performance by
+;; native-compiling loaded .elc files asynchronously
+(setq native-comp-jit-compilation t)
+(setq native-comp-deferred-compilation t) ; Deprecated in Emacs > 29.1
+
+
+;; Auto-revert in Emacs is a feature that automatically updates the
+;; contents of a buffer to reflect changes made to the underlying file
+;; on disk.
+(add-hook 'after-init-hook #'global-auto-revert-mode)
+
+;; recentf is an Emacs package that maintains a list of recently
+;; accessed files, making it easier to reopen files you have worked on
+;; recently.
+(progn
+  (setq recentf-auto-cleanup nil))
+(add-hook 'after-init-hook #'recentf-mode)
+;; TODO Fix issues with startup messages
+
+;; savehist is an Emacs feature that preserves the minibuffer history between
+;; sessions. It saves the history of inputs in the minibuffer, such as commands,
+;; search strings, and other prompts, to a file. This allows users to retain
+;; their minibuffer history across Emacs restarts.
+(add-hook 'after-init-hook #'savehist-mode)
+
+
+;; save-place-mode enables Emacs to remember the last location within a file
+;; upon reopening. This feature is particularly beneficial for resuming work at
+;; the precise point where you previously left off.
+(add-hook 'after-init-hook #'save-place-mode)
+
+
+;; Hide warnings and display only errors
+(setq warning-minimum-level :error)
+
+(setq pixel-scroll-precision-use-momentum nil)
+(pixel-scroll-precision-mode 1)
+
+(global-hl-line-mode 1)
+(set-face-attribute 'hl-line nil :inherit nil :background "#313244")
+(display-time-mode)
+(show-paren-mode +1)            ; Paren match highlighting
+(winner-mode 1)
+(delete-selection-mode 1)       ; Replace selected text with typed text
+(pixel-scroll-precision-mode 1)
+
+;; Configure Emacs to ask for confirmation before exiting
+;; (setq confirm-kill-emacs 'y-or-n-p)
+(setq confirm-kill-emacs nil)
+
+;; Window dividers
+(add-hook 'after-init-hook #'window-divider-mode)
+
+;; Buffer names
+(use-package uniquify
+  :custom
+  (uniquify-buffer-name-style 'forward)
+  (uniquify-separator "•")
+  (uniquify-after-kill-buffer-p t)
+  (uniquify-ignore-buffers-re "^\\*")
+  :ensure nil)
+
+;; Which-key
+;; (use-package which-key
+;;   :config
+;;   (which-key-mode)
+;;   :ensure t)
+
+(defun my/display-startup-time ()
+  (message "Emacs loaded in %s with %d garbage collections."
+           (format "%.2f seconds"
+                   (float-time
+                    (time-subtract after-init-time before-init-time)))
+           gcs-done))
+
+(add-hook 'emacs-startup-hook #'my/display-startup-time)
+#+end_src
+
+** completion
+#+name: completion
+#+begin_src emacs-lisp
+
+(use-package vertico
+  :hook (after-init . vertico-mode)
+  :commands vertico-mode
+  :defer t
+  :ensure t)
+
+(use-package orderless
+  :after vertico
+  :custom
+  (completion-styles '(orderless basic))
+  (completion-category-defaults nil)
+  (completion-category-overrides '((file (styles partial-completion))))
+  :ensure t)
+
+(use-package marginalia
+  :hook (after-init . marginalia-mode)
+  :commands (marginalia-mode marginalia-cycle)
+  :defer t
+  :ensure t)
+
+(use-package consult
+  :bind (:map global-map
+	      ("C-s"     . consult-line)
+	      ("C-x C-b" . consult-buffer)
+	      ("C-x C-r" . consult-recent-file))
+  :ensure t)
+
+(use-package company
+  :hook (after-init . global-company-mode)
+  :ensure t)
+#+end_src
+** ui
+#+name: ui
+#+begin_src emacs-lisp
+
+(use-package spacious-padding
+  :hook (after-init . spacious-padding-mode)
+  :custom
+  (spacious-padding-widths
+   '( :internal-border-width 15
+      :header-line-width 4
+      :mode-line-width 6
+      :tab-width 4
+      :right-divider-width 1
+      :scroll-bar-width 8
+      :fringe-width 8))
+  :ensure t)
+
+;; Rainbow
+(use-package rainbow-mode
+  :hook ((prog-mode . rainbow-mode)
+         (org-mode . rainbow-mode))
+  :ensure t)
+
+(use-package rainbow-delimiters
+  :hook (after-init . rainbow-delimiters-mode)
+  :ensure t)
+#+end_src
+** editor
+#+name: editor
+#+begin_src emacs-lisp
+
+#+end_src
+** emacs
+#+name: emacs
+#+begin_src emacs-lisp
+
+#+end_src
+** checkers
+#+name: checkers
+#+begin_src emacs-lisp
+
+#+end_src
+** tools
+#+name: tools
+#+begin_src emacs-lisp
+
+(use-package magit
+  :ensure t)
+
+(use-package pdf-tools
+  :mode
+  (("\\.pdf$" . pdf-view-mode))
+
+  :custom
+  pdf-annot-activate-created-annotations t 
+  pdf-view-resize-factor 1.1
+
+  :bind
+  (:map pdf-view-mode-map
+        ;; normal isearch
+	("C-s" . isearch-forward)
+        ;; custom keys 
+	("h" . pdf-annot-activate-created-annotations)
+	("t" . pdf-annot-add-text-annotation)
+	("D" . pdf-annot-delete))
+
+  :hook
+  ((pdf-view-mode) . (lambda () (cua-mode 0)))
+
+  :config
+  (pdf-tools-install)
+
+  (setq-default pdf-view-display-size 'fit-page)
+  :ensure t)
+
+(use-package undo-tree
+  :init
+  (global-undo-tree-mode)
+  :config
+  (setq-default undo-tree-auto-save-history nil)
+  :bind
+  (:map global-map
+        ("C-z"   . undo-tree-undo)
+        ("C-S-z" . undo-tree-redo))
+  :ensure t)
+
+(use-package undo-fu-session
+  :config
+  (undo-fu-session-global-mode)
+  :ensure t)
+#+end_src
+** lang
+#+name: lang
+#+begin_src emacs-lisp
+
+#+end_src
+** org
+*** ui
+#+name: org-ui
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (setq  org-tags-column 0)
+  (defun my/org-faces ()
+    (set-face-attribute 'org-document-title nil :height 1.2)
+    (set-face-attribute 'org-document-info nil :height 1.0)
+    (set-face-attribute 'org-document-info-keyword nil :height 1.0)
+    (set-face-attribute 'org-block nil :height 1.0)
+    (set-face-attribute 'org-tag nil :height 1.0)
+    (set-face-attribute 'org-todo nil :height 1.0)
+    (set-face-attribute 'org-done nil :height 1.0)
+    (set-face-attribute 'org-priority nil :height 1.0)
+    (set-face-attribute 'org-tag nil :height 0.8)
+    (set-face-attribute 'org-level-1 nil :height 1.5)
+    (set-face-attribute 'org-level-2 nil :height 1.4)
+    (set-face-attribute 'org-level-3 nil :height 1.3)
+    (set-face-attribute 'org-level-4 nil :height 1.2)
+    (set-face-attribute 'org-level-5 nil :height 1.1)
+    (set-face-attribute 'org-level-6 nil :height 1.0))
+
+  (add-hook 'org-mode-hook #'my/org-faces))
+
+(use-package org-modern
+  :hook (org-mode . org-modern-mode)
+  :config (setq org-modern-fold-stars
+                '(("◉" . "◉")
+                  ("○" . "○")
+                  ("●" . "●")
+                  ("◈" . "◈")
+                  ("◇" . "◇")
+                  ("◆" . "◆")
+                  ("•" . "•")))
+  :ensure t)
+#+end_src
+*** editor
+#+name: org-editor
+#+begin_src emacs-lisp
+
+(use-package org-tempo
+  :config (setq org-structure-template-alist
+		        '(("src" . "src")
+		          ("el"  . "src emacs-lisp")
+		          ("py"  . "src python")
+		          ("tex" . "src latex")
+		          ("abstract"    . "abstract")
+                ("conjecture"  . "conjecture")
+		          ("problem"     . "problem")
+		          ("question"    . "question")
+                ("corollary"   . "corollary")
+		          ("definition"  . "definition")
+		          ("lemma"       . "lemma")
+		          ("proposition" . "proposition")
+		          ("theorem"     . "theorem")
+		          ("example"     . "example")
+		          ("exercise"    . "exercise")
+                ("note"        . "note")
+		          ("remark"      . "remark")
+                ("proof"       . "proof")
+		          ("solution"    . "solution")
+		          ("questions"   . "questions")
+		          ("parts"       . "parts")
+		          ("center"      . "center")))
+  :after org
+  :ensure nil)
+#+end_src
+*** tools
+#+name: org-tools
+#+begin_src emacs-lisp
+
+(use-package phscroll
+  :straight (:host github :repo "misohena/phscroll")
+  :commands (org-phscroll-mode)
+  :config
+  (with-eval-after-load 'org
+    (require 'org-phscroll))
+  :hook(org-mode . org-phscroll-mode)
+  :ensure t)
+#+end_src
+*** lang
+#+name: org-lang
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (setq org-src-fontify-natively t
+        org-src-tab-acts-natively t
+        org-edit-src-content-indentation 0
+        org-support-shift-select t
+        org-startup-indented t)
+  (org-babel-do-load-languages
+   'org-babel-load-languages
+   '((emacs-lisp . t)
+     (shell . t)
+     (latex . t)
+     ;; (matlab . t)
+     (python . t))))
+#+end_src
+*** latex
+**** setup
+#+name: org-latex_setup
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (setq
+   org-latex-pdf-process '("pdflatex -interaction=nonstopmode -shell-escape %f"
+                           "biber %b"
+                           "pdflatex -interaction=nonstopmode -shell-escape %f"
+                           "pdflatex -interaction=nonstopmode -shell-escape %f")
+   org-highlight-latex-and-related '(native
+                                     script
+                                     entities)
+   org-latex-with-hyperref nil
+   org-latex-listings t)
+  :ensure nil)
+#+end_src
+**** preview
+#+name: org-latex_preview
+#+begin_src emacs-lisp
+
+(use-package org-latex-preview
+  :config
+  ;; Increase preview width
+  (plist-put org-latex-preview-appearance-options
+             :page-width 0.8)
+
+  ;; Use dvisvgm to generate previews
+  ;; You don't need this, it's the default:
+  (setq org-latex-preview-process-default 'dvisvgm)
+  
+  ;; Turn on auto-mode, it's built into Org and much faster/more featured than
+  ;; org-fragtog. (Remember to turn off/uninstall org-fragtog.)
+  (add-hook 'org-mode-hook 'org-latex-preview-auto-mode)
+
+  ;; Block C-n, C-p etc from opening up previews when using auto-mode
+  (setq org-latex-preview-auto-ignored-commands
+        '(next-line previous-line mwheel-scroll
+		    scroll-up-command scroll-down-command))
+
+  ;; Enable consistent equation numbering
+  (setq org-latex-preview-numbered t)
+
+  ;; Bonus: Turn on live previews.  This shows you a live preview of a LaTeX
+  ;; fragment and updates the preview in real-time as you edit it.
+  ;; To preview only environments, set it to '(block edit-special) instead
+  (setq org-latex-preview-live t)
+
+  ;; More immediate live-previews -- the default delay is 1 second
+  (setq org-latex-preview-live-debounce 0.25)
+  :ensure nil)
+#+end_src
+**** functions
+#+name: org-latex_functions
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex
+
+    (defun org-latex-example-block (example-block _contents info)
+      "Override EXAMPLE-BLOCK element in ox-latex."
+      (when (org-string-nw-p (org-element-property :value example-block))
+	(let ((environment (or (org-export-read-attribute
+				:attr_latex example-block :environment)
+			       "example")))
+	  (org-latex--wrap-label
+	   example-block
+	   (format "\\begin{%s}\n%s\\end{%s}"
+		   environment
+		   (org-export-format-code-default example-block info)
+		   environment)
+	   info)))))   
+  :ensure nil)
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex
+
+    (defun my/org-add-latex-class (name class &rest levels)
+      "Add a new LaTeX class to `org-latex-classes` with NAME, CLASS, and LEVELS."
+      (let ((class-entry
+	     `(,name
+	       ,(format "\\documentclass{%s}
+			   [NO-DEFAULT-PACKAGES]
+			   [PACKAGES]
+			   [EXTRA]" class)
+	       ,@(mapcar (lambda (level)
+			   `(,(format "\\%s{%%s}" level) . ,(format "\\%s*{%%s}" level)))
+			 levels))))
+	(add-to-list 'org-latex-classes class-entry))))
+  :ensure nil)
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex
+
+    (defun my/org-get-headline-string-element  (headline backend info)
+      (let ((prop-point (next-property-change 0 headline)))
+	(if prop-point (plist-get (text-properties-at prop-point headline) :parent))))
+
+    (defun my/org-add-latex-export-filter (tag command)
+      (let ((func-name (intern (concat "my/org-latex-export-filter-" tag))))
+	(fset func-name
+	      `(lambda (headline backend info)
+		 (when (org-export-derived-backend-p backend 'latex)
+		   (let ((elmnt (my/org-get-headline-string-element headline backend info)))
+		     (when (member ,tag (org-element-property :tags elmnt))
+		       (concat ,command headline))))))
+	(add-to-list 'org-export-filter-headline-functions func-name))))
+  :ensure nil)
+#+end_src
+**** classes
+#+name: org-latex_classes
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex
+    (my/org-add-latex-class "kaobook"  "kaobook"  "chapter" "section" "subsection")
+    (my/org-add-latex-class "kaoparts" "kaobook"  "addpart" "chapter" "section" "subsection")
+    (my/org-add-latex-class "kaohandt" "kaohandt" "section" "subsection")
+    (my/org-add-latex-class "exam"     "exam"     "section" "subsection"))
+  :ensure nil)
+#+end_src
+**** export-filters
+***** page
+#+name: org-latex_export-filter_page
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex    
+    (my/org-add-latex-export-filter "newpage"     "\\newpage\n")
+
+    (my/org-add-latex-export-filter "page_wide"   "\\pagelayout{wide}\n")
+    (my/org-add-latex-export-filter "page_margin" "\\pagelayout{margin}\n")
+
+    (my/org-add-latex-export-filter "head_plain"  "\\pagestyle{plain.scrheadings}\n"))
+  :ensure nil)
+#+end_src
+***** chapterstyle
+#+name: org-latex_export-filter_chapterstyle
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex
+    (my/org-add-latex-export-filter "chap_plain" "\\setchapterstyle{plain}\n")
+    (my/org-add-latex-export-filter "chap_bar"   "\\setchapterstyle{bar}\n")
+    (my/org-add-latex-export-filter "chap_lines" "\\setchapterstyle{lines}\n")
+    (my/org-add-latex-export-filter "chap_kao"   "\\setchapterstyle{kao}\n")
+    (my/org-add-latex-export-filter "chap_lect"  "\\setchapterstyle{lecture}\n"))
+  :ensure nil)
+#+end_src
+***** lectures
+#+name: org-latex_export-filter_lectures
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex    
+    (my/org-add-latex-export-filter "L01" "\\renewcommand{\\thechapter}{L01}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L02" "\\renewcommand{\\thechapter}{L02}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L03" "\\renewcommand{\\thechapter}{L03}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L04" "\\renewcommand{\\thechapter}{L04}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L05" "\\renewcommand{\\thechapter}{L05}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L06" "\\renewcommand{\\thechapter}{L06}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L07" "\\renewcommand{\\thechapter}{L07}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L08" "\\renewcommand{\\thechapter}{L08}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L09" "\\renewcommand{\\thechapter}{L09}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L10" "\\renewcommand{\\thechapter}{L10}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L11" "\\renewcommand{\\thechapter}{L11}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L12" "\\renewcommand{\\thechapter}{L12}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L13" "\\renewcommand{\\thechapter}{L13}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L14" "\\renewcommand{\\thechapter}{L14}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L15" "\\renewcommand{\\thechapter}{L15}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L16" "\\renewcommand{\\thechapter}{L16}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L17" "\\renewcommand{\\thechapter}{L17}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L18" "\\renewcommand{\\thechapter}{L18}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L19" "\\renewcommand{\\thechapter}{L19}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L20" "\\renewcommand{\\thechapter}{L20}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L21" "\\renewcommand{\\thechapter}{L21}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L22" "\\renewcommand{\\thechapter}{L22}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L23" "\\renewcommand{\\thechapter}{L23}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L24" "\\renewcommand{\\thechapter}{L24}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L25" "\\renewcommand{\\thechapter}{L25}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L26" "\\renewcommand{\\thechapter}{L26}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L27" "\\renewcommand{\\thechapter}{L27}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L28" "\\renewcommand{\\thechapter}{L28}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L29" "\\renewcommand{\\thechapter}{L29}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L30" "\\renewcommand{\\thechapter}{L30}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L31" "\\renewcommand{\\thechapter}{L31}\n\\setchapterpreamble[u]{\\margintoc}\n")
+    (my/org-add-latex-export-filter "L32" "\\renewcommand{\\thechapter}{L32}\n\\setchapterpreamble[u]{\\margintoc}\n"))
+  :ensure nil)
+#+end_src
+***** backmatter
+#+name: org-latex_export-filter_backmatter
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex
+    (my/org-add-latex-export-filter "appendix"   "\\appendix\n")
+    (my/org-add-latex-export-filter "backmatter" "\\backmatter\n"))
+  :ensure nil)
+#+end_src
+***** margintoc
+#+name: org-latex_export-filter_margintoc
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex
+    (my/org-add-latex-export-filter "margintoc" "\\setchapterpreamble[u]{\\margintoc}\n"))
+  :ensure nil)
+#+end_src
+***** elements
+#+name: org-latex_export-filter_elements
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex
+    (my/org-add-latex-export-filter "biblio"    "\\printbibliography[heading=bibintoc, title=Bibliography, prenote=bibnote]\n")
+    (my/org-add-latex-export-filter "glossary"  "\\printglossary[title=Special Terms, toctitle=List of Terms]\n")
+    (my/org-add-latex-export-filter "index"     "\\printindex\n")
+    (my/org-add-latex-export-filter "backcover" "\\clearpage\n\\thispagestyle{empty}\n\\null\n\\clearpage\n\\includepdf{cover-back.pdf}\n"))
+  :ensure nil)
+#+end_src
+***** end
+#+name: org-latex_export-filter_end
+#+begin_src emacs-lisp
+
+(use-package org
+  :config
+  (with-eval-after-load 'ox-latex    
+    (my/org-add-latex-export-filter "end" "\\end{document}\n"))
+  :ensure nil)
+#+end_src
+***** noweb
+#+name: org-latex_export-filters
+#+begin_src emacs-lisp :noweb yes
+<<org-latex_export-filter_page>>
+<<org-latex_export-filter_chapterstyle>>
+<<org-latex_export-filter_lectures>>
+<<org-latex_export-filter_backmatter>>
+<<org-latex_export-filter_margintoc>>
+<<org-latex_export-filter_elements>>
+<<org-latex_export-filter_end>>
+#+end_src
+**** noweb
+#+name: org-latex
+#+begin_src emacs-lisp :noweb yes
+<<org-latex_setup>>
+<<org-latex_preview>>
+<<org-latex_functions>>
+<<org-latex_classes>>
+<<org-latex_export-filters>>
+#+end_src
+*** config
+#+name: org-config
+#+begin_src emacs-lisp
+(use-package org
+  :config
+  (defun my/org-babel-tangle-config ()
+    (when (or (string-equal (buffer-file-name)
+			                (expand-file-name "~/Repos/emacs/config.org"))
+              (string-equal (buffer-file-name)
+			                (expand-file-name "~/.emacs.d/config.org")))
+      (let ((org-confirm-babel-evaluate nil))
+	    (org-babel-tangle))))
+  
+  (add-hook 'org-mode-hook
+	        (lambda ()
+	          (add-hook 'after-save-hook #'my/org-babel-tangle-config))))
+
+(use-package org
+  :hook ((org-mode  . visual-line-mode))
+  :bind
+  (:map org-mode-map            
+        ("C-c C-:" . org-latex-preview)
+        ("C-c C-;" . org-latex-export-to-latex)
+        ("C-c C-." . org-latex-export-to-pdf))
+  :ensure nil)
+#+end_src
+
+*** noweb
+#+name: org
+#+begin_src emacs-lisp :noweb yes
+<<org-ui>>
+<<org-editor>>
+<<org-tools>>
+<<org-lang>>
+<<org-latex>>
+<<org-config>>
+#+end_src
+
+
+** config
+#+name: config
+#+begin_src emacs-lisp
+
+(use-package emacs
+  :config
+  (defun my/backward-kill-word ()
+    (interactive "*")
+    (push-mark)
+    (backward-word)
+    (delete-region (point) (mark)))
+  :hook
+  ((prog-mode . display-line-numbers-mode))
+  :bind
+  (:map global-map
+        ("C-DEL"   . my/backward-kill-word)
+        ("C-x C-c" . nil)
+        ("C-x C-q" . save-buffers-kill-terminal)
+        ("M-;"     . comment-line))
+  :ensure nil)
+#+end_src
+
+* noweb
+** pre-early-init
+#+begin_src emacs-lisp :tangle ./pre-early-init.el :noweb yes
+;;; pre-early-init.el --- Early Setup -*- no-byte-compile: t; lexical-binding: t; -*-
+<<performance>>
+#+end_src
+** post-early-init
+#+begin_src emacs-lisp :tangle ./post-early-init.el :noweb yes
+;;; post-early-init.el --- Early Configuration -*- no-byte-compile: t; lexical-binding: t; -*-
+<<package>>
+<<frame>>
+<<buffers>>
+#+end_src
+** pre-init
+#+begin_src emacs-lisp :tangle ./pre-init.el :noweb yes
+;;; pre-init.el --- Setup -*- no-byte-compile: t; lexical-binding: t; -*-
+<<straight>>
+<<org-latest>>
+#+end_src
+** post-init
+#+begin_src emacs-lisp :tangle ./post-init.el :noweb yes
+;;; post-init.el --- Configuration -*- no-byte-compile: t; lexical-binding: t; -*-
+<<minimal-emacs>>
+<<completion>>
+<<ui>>
+<<editor>>
+<<emacs>>
+<<checkers>>
+<<tools>>
+<<lang>>
+<<org>>
+<<config>>
+#+end_src
+   
